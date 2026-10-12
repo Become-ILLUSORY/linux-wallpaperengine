@@ -1,11 +1,11 @@
 pkgbase = linux-wallpaperengine-v3-bin
 	pkgdesc = Wallpaper Engine backgrounds for Linux (prebuilt x86-64-v3)
-	pkgver = 1.0.0
+	pkgver = 1.0.1
 	pkgrel = 1
 	url = https://github.com/Become-ILLUSORY/linux-wallpaperengine
 	arch = x86_64
 	license = GPL-3.0-only
-	provides = linux-wallpaperengine=1.0.0
+	provides = linux-wallpaperengine=1.0.1
 	provides = linux-wallpaperengine
 	conflicts = linux-wallpaperengine
 	conflicts = linux-wallpaperengine-git
@@ -50,8 +50,8 @@ pkgbase = linux-wallpaperengine-v3-bin
 	depends = zlib-ng-compat
 	options = !strip
 	options = !debug
-	noextract = linux-wallpaperengine-v3-bin-1.0.0.tar.zst
-	source = linux-wallpaperengine-v3-bin-1.0.0.tar.zst::https://github.com/Become-ILLUSORY/linux-wallpaperengine/releases/download/v1.0.0/linux-wallpaperengine-1.0.0-x86_64.tar.zst
-	sha256sums = 130455e9e2411ce002ae4d03d5115f4be230574fcd79d737addc3dc6623134fc
+	noextract = linux-wallpaperengine-v3-bin-1.0.1.tar.zst
+	source = linux-wallpaperengine-v3-bin-1.0.1.tar.zst::https://github.com/Become-ILLUSORY/linux-wallpaperengine/releases/download/v1.0.1/linux-wallpaperengine-1.0.1-x86_64.tar.zst
+	sha256sums = 108ca1eeb6ebadf83a41c3269d6e762a5441f92842b54103d6c5cd6ac5e746a6
 
 pkgname = linux-wallpaperengine-v3-bin
