@@ -263,6 +263,14 @@ jobs:
       - name: Create archive
         run: |
           set -euo pipefail
+
+          # Ship the license alongside the binaries so downstream packaging
+          # (the AUR -bin package) does not need a second source entry.
+          # Neutral upstream path; the PKGBUILD re-installs it under its own
+          # pkgname directory as Arch packaging guidelines require.
+          install -Dm644 LICENSE \
+            stage/usr/share/licenses/linux-wallpaperengine/LICENSE
+
           NAME="linux-wallpaperengine-${{ steps.stage.outputs.version }}-x86_64"
           tar -C stage --zstd -cf "${NAME}.tar.zst" .
           sha256sum "${NAME}.tar.zst" | tee "${NAME}.tar.zst.sha256"
