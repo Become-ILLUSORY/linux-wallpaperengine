@@ -237,6 +237,7 @@ jobs:
           set -euo pipefail
           if [ -n "${{ inputs.release_tag }}" ]; then
             VERSION="${{ inputs.release_tag }}"
+            VERSION="${VERSION#v}"
           else
             VERSION="r$(git rev-list --count HEAD).$(git rev-parse --short HEAD)"
           fi
