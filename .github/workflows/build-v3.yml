@@ -41,7 +41,7 @@ on:
         type: string
         default: ""
   push:
-    branches: [main]
+    branches: [main, feat/arch-v3-build]
     paths:
       - "src/**"
       - "CMakeModules/**"
