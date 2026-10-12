@@ -122,15 +122,19 @@ jobs:
             pacman-v3-
 
       # ----------------------------------------------------------- toolchain
+      # No full system upgrade here: `pacman -Syu` would pull the plain Arch
+      # `zlib` over CachyOS' `zlib-ng-compat` (they conflict) and prompt for
+      # several provider choices. The image already tracks CachyOS, we only
+      # need the build dependencies.
       - name: Install build dependencies
         run: |
-          pacman -Syu --noconfirm --needed \
+          pacman -Sy --noconfirm --needed --noprogressbar \
             base-devel cmake ninja git ccache zstd github-cli \
             libx11 libxext libxrandr libxinerama libxcursor libxi \
             libxxf86vm libxfixes libxrender libxtst libxss \
             libxcomposite libxdamage \
             mesa libglvnd glew freeglut \
-            dbus zlib sdl2-compat mpv lz4 ffmpeg libpulse freetype2 glm glfw \
+            dbus sdl2-compat mpv lz4 ffmpeg libpulse freetype2 glm glfw \
             wayland wayland-protocols libxkbcommon \
             libcups at-spi2-core nss nspr alsa-lib
 
