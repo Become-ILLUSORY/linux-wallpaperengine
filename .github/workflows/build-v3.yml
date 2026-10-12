@@ -173,6 +173,43 @@ jobs:
       - name: Show ccache statistics
         run: ccache --show-stats --verbose
 
+      # ------------------------------------------------- runtime dependencies
+      # Emits the exact sonames the binary needs plus the Arch packages that
+      # own them, so the PKGBUILD depends=() is derived, not guessed.
+      - name: Report runtime dependencies
+        run: |
+          set -eu
+          BIN=build/output/linux-wallpaperengine
+          LIB=build/output/liblinux-wallpaperengine-lib.so
+
+          echo "===== ldd: $BIN ====="
+          ldd "$BIN" || true
+          echo
+          echo "===== ldd: $LIB ====="
+          ldd "$LIB" || true
+          echo
+          echo "===== soname -> package (transitive closure) ====="
+          {
+            ldd "$BIN" 2>/dev/null
+            ldd "$LIB" 2>/dev/null
+            ldd build/output/libcef.so 2>/dev/null
+          } | awk '/=> \//{print $3} /^\t\//{print $1}' | sort -u > /tmp/needed-libs.txt
+          wc -l < /tmp/needed-libs.txt
+
+          while read -r so; do
+            [ -e "$so" ] || continue
+            pkg=$(pacman -Qoq "$so" 2>/dev/null | head -n1)
+            printf '%-46s %s\n' "$(basename "$so")" "${pkg:-<unknown>}"
+          done < /tmp/needed-libs.txt
+
+          echo
+          echo "===== unique owning packages ====="
+          while read -r so; do
+            [ -e "$so" ] || continue
+            pacman -Qoq "$so" 2>/dev/null | head -n1
+          done < /tmp/needed-libs.txt | sort -u | tr '\n' ' '
+          echo
+
       # -------------------------------------------------------------- verify
       - name: Verify x86-64-v3 code generation
         run: |
