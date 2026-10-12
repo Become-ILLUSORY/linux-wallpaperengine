@@ -18,6 +18,9 @@ name: Build (x86-64-v3)
 # This file is also a reusable workflow: release-v3.yml calls it on tag pushes.
 # (A plain `tags:` trigger cannot be combined with a `paths:` filter here,
 # because a tag push has no file diff for the paths filter to match.)
+#
+# First run populates ccache; subsequent runs of the same branch restore it via
+# the `ccache-v3-<ref>-` fallback key, which is where the speed-up comes from.
 
 on:
   workflow_call:
