@@ -235,8 +235,13 @@ jobs:
         id: stage
         run: |
           set -euo pipefail
-          VERSION="r$(git rev-list --count HEAD).$(git rev-parse --short HEAD)"
+          if [ -n "${{ inputs.release_tag }}" ]; then
+            VERSION="${{ inputs.release_tag }}"
+          else
+            VERSION="r$(git rev-list --count HEAD).$(git rev-parse --short HEAD)"
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building version: $VERSION"
 
           rm -rf stage
           mkdir -p stage
