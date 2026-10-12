@@ -69,12 +69,18 @@ depends=(
 )
 
 source=("${pkgname}-${pkgver}.tar.zst::https://github.com/Become-ILLUSORY/linux-wallpaperengine/releases/download/v${pkgver}/${_pkgname}-${pkgver}-x86_64.tar.zst")
-sha256sums=('6f643f112183095b7651e9ea533ed85da3c3598d8a8aaac9cc4c2aced847267b')
+sha256sums=('130455e9e2411ce002ae4d03d5115f4be230574fcd79d737addc3dc6623134fc')
+
+# The tarball is already a complete, correctly laid out install tree; makepkg
+# would otherwise unpack it into $srcdir and the file names would collide with
+# the ones we want to install. Keep it as a single file and extract it
+# ourselves in package().
+noextract=("${pkgname}-${pkgver}.tar.zst")
 
 package() {
-    # The CI tarball already carries the full /opt install tree, the /usr/bin
-    # wrapper and the upstream license, so this is a straight extraction.
-    cp -a --no-preserve=ownership "${srcdir}/." "${pkgdir}/"
+    # Extract straight into $pkgdir. The archive holds the full /opt install
+    # tree, the /usr/bin wrapper and the upstream license.
+    bsdtar -xf "${srcdir}/${pkgname}-${pkgver}.tar.zst" -C "${pkgdir}"
 
     # Arch packaging guidelines want the license under the package's own name.
     install -d "${pkgdir}/usr/share/licenses/${pkgname}"

@@ -40,6 +40,7 @@ emit_array optdepends "${optdepends[@]:-}"
 emit_array makedepends "${makedepends[@]:-}"
 emit_array checkdepends "${checkdepends[@]:-}"
 emit_array options "${options[@]:-}"
+emit_array noextract "${noextract[@]:-}"
 
 # source entries keep their local name prefix
 if [ "${#source[@]}" -gt 0 ]; then

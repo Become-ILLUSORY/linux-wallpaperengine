@@ -50,7 +50,8 @@ pkgbase = linux-wallpaperengine-v3-bin
 	depends = zlib-ng-compat
 	options = !strip
 	options = !debug
+	noextract = linux-wallpaperengine-v3-bin-1.0.0.tar.zst
 	source = linux-wallpaperengine-v3-bin-1.0.0.tar.zst::https://github.com/Become-ILLUSORY/linux-wallpaperengine/releases/download/v1.0.0/linux-wallpaperengine-1.0.0-x86_64.tar.zst
-	sha256sums = 6f643f112183095b7651e9ea533ed85da3c3598d8a8aaac9cc4c2aced847267b
+	sha256sums = 130455e9e2411ce002ae4d03d5115f4be230574fcd79d737addc3dc6623134fc
 
 pkgname = linux-wallpaperengine-v3-bin
