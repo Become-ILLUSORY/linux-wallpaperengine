@@ -1,0 +1,313 @@
+name: Build (x86-64-v3)
+
+# Builds linux-wallpaperengine with the CachyOS x86-64-v3 toolchain.
+#
+# Why a CachyOS container instead of plain Arch:
+#   * the whole dependency stack (glibc, ffmpeg, mesa, ...) is compiled for
+#     x86-64-v3, so the binary links against v3-optimised libraries
+#   * its GCC is already tuned for that micro-architecture level
+#   * we still pass -march=x86-64-v3 explicitly, so the code generation is
+#     reproducible regardless of the toolchain defaults
+#
+# Expensive steps are cached:
+#   * ccache                -> object-level compile cache (the big win)
+#   * CEF distribution      -> ~370 MB download + slow bz2 extraction
+#   * git submodule objects -> glslang / SPIRV-Cross / quickjs / ...
+#   * pacman package cache  -> avoids re-downloading the dependency set
+#
+# This file is also a reusable workflow: release-v3.yml calls it on tag pushes.
+# (A plain `tags:` trigger cannot be combined with a `paths:` filter here,
+# because a tag push has no file diff for the paths filter to match.)
+#
+# First run populates ccache; subsequent runs of the same branch restore it via
+# the `ccache-v3-<ref>-` fallback key, which is where the speed-up comes from.
+
+on:
+  workflow_call:
+    inputs:
+      create_release:
+        description: "Create a GitHub Release and attach the package"
+        type: boolean
+        default: false
+      release_tag:
+        description: "Release tag (empty = derived from the commit)"
+        type: string
+        default: ""
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: "Create a GitHub Release and attach the package"
+        type: boolean
+        default: false
+      release_tag:
+        description: "Release tag (leave empty to use build-<short-sha>)"
+        type: string
+        default: ""
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "CMakeModules/**"
+      - "CMakeLists.txt"
+      - "protocols/**"
+      - ".github/workflows/build-v3.yml"
+
+concurrency:
+  group: build-v3-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+env:
+  MARCH: x86-64-v3
+  INSTALL_PREFIX: /opt/linux-wallpaperengine
+  CCACHE_DIR: /ccache
+  CCACHE_MAXSIZE: 3G
+  CCACHE_COMPRESS: "true"
+
+jobs:
+  build:
+    name: Build x86-64-v3 package
+    runs-on: ubuntu-latest
+    container:
+      image: cachyos/cachyos-v3:latest
+
+    steps:
+      # ------------------------------------------------------------ checkout
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: false
+
+      - name: Prepare git
+        run: |
+          git config --global --add safe.directory '*'
+
+      # --------------------------------------------------------------- cache
+      - name: Restore ccache
+        uses: actions/cache@v4
+        with:
+          path: /ccache
+          key: ccache-v3-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ccache-v3-${{ github.ref_name }}-
+            ccache-v3-
+
+      - name: Restore submodule objects
+        uses: actions/cache@v4
+        with:
+          path: .git/modules
+          key: submodules-${{ hashFiles('.gitmodules') }}
+          restore-keys: |
+            submodules-
+
+      - name: Read CEF version
+        id: cef
+        run: |
+          VERSION=$(sed -n 's/.*set(CEF_VERSION "\(.*\)").*/\1/p' CMakeLists.txt | head -n1)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "CEF version: $VERSION"
+
+      - name: Restore CEF distribution
+        uses: actions/cache@v4
+        with:
+          path: build/cef
+          key: cef-${{ steps.cef.outputs.version }}
+
+      - name: Restore pacman package cache
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/pacman/pkg
+          key: pacman-v3-${{ github.run_id }}
+          restore-keys: |
+            pacman-v3-
+
+      # ----------------------------------------------------------- toolchain
+      # No full system upgrade here: `pacman -Syu` would pull the plain Arch
+      # `zlib` over CachyOS' `zlib-ng-compat` (they conflict) and prompt for
+      # several provider choices. The image already tracks CachyOS, we only
+      # need the build dependencies.
+      - name: Install build dependencies
+        run: |
+          pacman -Sy --noconfirm --needed --noprogressbar \
+            base-devel cmake ninja git ccache zstd github-cli \
+            libx11 libxext libxrandr libxinerama libxcursor libxi \
+            libxxf86vm libxfixes libxrender libxtst libxss \
+            libxcomposite libxdamage \
+            mesa libglvnd glew freeglut \
+            dbus sdl2-compat mpv lz4 ffmpeg libpulse freetype2 glm glfw \
+            wayland wayland-protocols libxkbcommon \
+            libcups at-spi2-core nss nspr alsa-lib
+
+      - name: Fetch submodules
+        run: |
+          git submodule update --init --recursive --depth 1 || \
+            git submodule update --init --recursive
+
+      - name: Reset ccache statistics
+        run: ccache --zero-stats
+
+      # --------------------------------------------------------------- build
+      - name: Configure
+        run: |
+          cmake -B build -S . -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${INSTALL_PREFIX}" \
+            -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DCMAKE_C_FLAGS="-march=${MARCH}" \
+            -DCMAKE_CXX_FLAGS="-march=${MARCH} -Wno-builtin-macro-redefined" \
+            -DBUILD_TESTING=OFF \
+            -Wno-dev
+
+      # The CEF tarball is only needed to populate build/cef; the extracted
+      # tree is what the cache restores, so drop it to keep the cache small.
+      - name: Trim CEF tarball from cache payload
+        run: rm -f build/cef/*.tar.bz2
+
+      - name: Build
+        run: cmake --build build --parallel "$(nproc)"
+
+      - name: Show ccache statistics
+        run: ccache --show-stats --verbose
+
+      # ------------------------------------------------- runtime dependencies
+      # Emits the exact sonames the binary needs plus the Arch packages that
+      # own them, so the PKGBUILD depends=() is derived, not guessed.
+      - name: Report runtime dependencies
+        run: |
+          set -eu
+          BIN=build/output/linux-wallpaperengine
+          LIB=build/output/liblinux-wallpaperengine-lib.so
+
+          echo "===== ldd: $BIN ====="
+          ldd "$BIN" || true
+          echo
+          echo "===== ldd: $LIB ====="
+          ldd "$LIB" || true
+          echo
+          echo "===== soname -> package (transitive closure) ====="
+          {
+            ldd "$BIN" 2>/dev/null
+            ldd "$LIB" 2>/dev/null
+            ldd build/output/libcef.so 2>/dev/null
+          } | awk '/=> \//{print $3} /^\t\//{print $1}' | sort -u > /tmp/needed-libs.txt
+          wc -l < /tmp/needed-libs.txt
+
+          while read -r so; do
+            [ -e "$so" ] || continue
+            pkg=$(pacman -Qoq "$so" 2>/dev/null | head -n1)
+            printf '%-46s %s\n' "$(basename "$so")" "${pkg:-<unknown>}"
+          done < /tmp/needed-libs.txt
+
+          echo
+          echo "===== unique owning packages ====="
+          while read -r so; do
+            [ -e "$so" ] || continue
+            pacman -Qoq "$so" 2>/dev/null | head -n1
+          done < /tmp/needed-libs.txt | sort -u | tr '\n' ' '
+          echo
+
+      # -------------------------------------------------------------- verify
+      - name: Verify x86-64-v3 code generation
+        run: |
+          BIN=build/output/linux-wallpaperengine
+          LIB=build/output/liblinux-wallpaperengine-lib.so
+
+          file "$BIN"
+
+          echo "--- ELF ISA notes ---"
+          readelf -n "$BIN" 2>/dev/null | grep -i 'x86-64-v' || \
+            echo "::warning::no x86-64-v* ISA note in $BIN"
+
+          echo "--- AVX2/FMA instruction check ---"
+          if objdump -d "$LIB" 2>/dev/null | \
+             grep -m1 -qE '\b(vpermps|vpbroadcast|vfmadd[0-9]*[sp][sd]|vfnmadd)'; then
+            echo "OK: AVX2/FMA instructions present in $LIB"
+          else
+            echo "::warning::no AVX2/FMA instructions found in $LIB - check -march handling"
+          fi
+
+      # ------------------------------------------------------------ packaging
+      - name: Stage install tree
+        id: stage
+        run: |
+          set -euo pipefail
+          if [ -n "${{ inputs.release_tag }}" ]; then
+            VERSION="${{ inputs.release_tag }}"
+            VERSION="${VERSION#v}"
+          else
+            VERSION="r$(git rev-list --count HEAD).$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Building version: $VERSION"
+
+          rm -rf stage
+          mkdir -p stage
+          DESTDIR="$PWD/stage" cmake --install build --prefix "$INSTALL_PREFIX"
+
+          install -d stage/usr/bin
+          cat > stage/usr/bin/linux-wallpaperengine <<'WRAPPER'
+          #!/bin/sh
+          cd /opt/linux-wallpaperengine || exit 1
+          exec ./linux-wallpaperengine "$@"
+          WRAPPER
+          chmod 755 stage/usr/bin/linux-wallpaperengine
+
+          echo "--- install tree ---"
+          du -sh stage
+          find stage -maxdepth 3 -type d | sort | head -25
+
+      - name: Create archive
+        run: |
+          set -euo pipefail
+
+          # Ship the license alongside the binaries so downstream packaging
+          # (the AUR -bin package) does not need a second source entry.
+          # Neutral upstream path; the PKGBUILD re-installs it under its own
+          # pkgname directory as Arch packaging guidelines require.
+          install -Dm644 LICENSE \
+            stage/usr/share/licenses/linux-wallpaperengine/LICENSE
+
+          NAME="linux-wallpaperengine-${{ steps.stage.outputs.version }}-x86_64"
+          tar -C stage --zstd -cf "${NAME}.tar.zst" .
+          sha256sum "${NAME}.tar.zst" | tee "${NAME}.tar.zst.sha256"
+          ls -lh "${NAME}.tar.zst"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-wallpaperengine-${{ steps.stage.outputs.version }}-x86_64
+          path: |
+            linux-wallpaperengine-*.tar.zst
+            linux-wallpaperengine-*.tar.zst.sha256
+          retention-days: 30
+
+      # -------------------------------------------------------------- release
+      - name: Publish release
+        if: ${{ inputs.create_release }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ inputs.release_tag }}"
+          if [ -z "$TAG" ]; then
+            TAG="build-$(git rev-parse --short HEAD)"
+          fi
+
+          if ! gh release view "$TAG" >/dev/null 2>&1; then
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes "x86-64-v3 build of linux-wallpaperengine @ ${GITHUB_SHA}" \
+              --target "$GITHUB_SHA"
+          fi
+
+          gh release upload "$TAG" \
+            linux-wallpaperengine-*.tar.zst \
+            linux-wallpaperengine-*.tar.zst.sha256 \
+            --clobber
+
+          echo "Release published:"
+          gh release view "$TAG" --json url --jq .url

@@ -1,0 +1,21 @@
+name: Release (x86-64-v3)
+
+# Tag-driven releases. Kept in a separate file because a `tags:` push filter
+# cannot be combined with the `paths:` filter that build-v3.yml uses for
+# branch pushes - a tag push carries no file diff, so the paths filter would
+# silently never match.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Release x86-64-v3 package
+    uses: ./.github/workflows/build-v3.yml
+    with:
+      create_release: true
+      release_tag: ${{ github.ref_name }}
